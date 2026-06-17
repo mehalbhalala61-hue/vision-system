@@ -1,0 +1,82 @@
+# =============================================================================
+# configs/train_config.yaml — Training Engine Config
+# =============================================================================
+# All hyperparameters in one place — zero hardcoding in train.py
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# TRAINING
+# -----------------------------------------------------------------------------
+training:
+  epochs: 50
+  seed: 42
+  device: cuda                  # cuda | cpu — auto-falls back to cpu if no GPU
+
+# -----------------------------------------------------------------------------
+# LOSS
+# -----------------------------------------------------------------------------
+loss:
+  name: cross_entropy
+  label_smoothing: 0.1          # Prevents overconfident predictions
+
+# -----------------------------------------------------------------------------
+# OPTIMIZER
+# -----------------------------------------------------------------------------
+optimizer:
+  name: adamw
+  lr: 0.0003                      # Starting LR — overridden by LR finder result
+  weight_decay: 1e-4
+  betas: [0.9, 0.999]
+  eps: 1e-8
+
+# -----------------------------------------------------------------------------
+# SCHEDULER — Linear Warmup + Cosine Annealing
+# -----------------------------------------------------------------------------
+scheduler:
+  warmup_epochs: 5              # Linear warmup for first 5 epochs
+  min_lr: 0.000001                  # Cosine annealing floor
+
+# -----------------------------------------------------------------------------
+# AMP — Automatic Mixed Precision
+# -----------------------------------------------------------------------------
+amp:
+  enabled: true                 # 2x speedup on Kaggle GPU — always on
+  grad_clip_max_norm: 1.0       # Gradient clipping after unscale
+
+# -----------------------------------------------------------------------------
+# EARLY STOPPING
+# -----------------------------------------------------------------------------
+early_stopping:
+  enabled: true
+  patience: 8                   # Stop if val_acc doesn't improve for 8 epochs
+  monitor: val_acc              # val_acc | val_loss
+  mode: max                     # max for accuracy, min for loss
+
+# -----------------------------------------------------------------------------
+# CHECKPOINTING
+# -----------------------------------------------------------------------------
+checkpoint:
+  save_dir: logs/checkpoints/
+  save_best: true               # Always save best.pth
+  save_latest: true             # Always save latest.pth (resume support)
+  # Saved keys: epoch, model_state_dict, optimizer_state_dict,
+  #             scaler_state_dict, best_acc, config
+
+# -----------------------------------------------------------------------------
+# LOGGING
+# -----------------------------------------------------------------------------
+logging:
+  csv_path: logs/training_log.csv
+  tensorboard_dir: logs/tensorboard/
+  log_every_n_batches: 50       # Print batch loss every N steps
+
+# -----------------------------------------------------------------------------
+# LR FINDER
+# -----------------------------------------------------------------------------
+lr_finder:
+  start_lr: 0.0000001
+  end_lr: 0.1
+  num_iter: 100                 # Steps to sweep
+  smooth_f: 0.05                # EMA smoothing factor for loss curve
+  diverge_th: 5.0               # Stop if loss > diverge_th * best_loss
+  output_plot: logs/lr_finder_plot.png

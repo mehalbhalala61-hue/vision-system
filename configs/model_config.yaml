@@ -1,0 +1,103 @@
+# =============================================================================
+# configs/model_config.yaml — Model Architecture Config
+# =============================================================================
+# Everything about the model is driven from here.
+# Change depth, channels, SE toggle — zero code changes in resnet.py
+#
+# Interview note:
+#   "My architecture is fully config-driven — I can switch ResNet-18 to
+#    ResNet-50 by changing one line. SE blocks are a toggle. num_classes
+#    auto-reads from data_config.yaml so the same model works for any dataset."
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# ARCHITECTURE
+# -----------------------------------------------------------------------------
+arch:
+  name: resnet                  # model family — resnet only for now
+  depth: 34                     # 18 | 34 | 50  (18/34 use BasicBlock, 50 uses Bottleneck)
+  # Channels at each of the 4 stages
+  channels: [64, 128, 256, 512]
+
+# -----------------------------------------------------------------------------
+# BLOCKS
+# -----------------------------------------------------------------------------
+blocks:
+  # Squeeze-Excitation attention after each residual block
+  # +2% params, +1-2% accuracy — SENet (ImageNet winner 2017)
+  se_block:
+    enabled: true
+    reduction_ratio: 16         # SE bottleneck: C → C/16 → C
+
+  # Norm layer — BatchNorm works best for ResNet
+  norm_layer: batch_norm        # batch_norm | group_norm | layer_norm
+
+  # Activation
+  activation: relu              # relu | leaky_relu | gelu
+
+# -----------------------------------------------------------------------------
+# STEM (first conv before stages)
+# -----------------------------------------------------------------------------
+stem:
+  kernel_size: 7
+  stride: 2
+  padding: 3
+  maxpool: true                 # 2x2 maxpool after stem conv
+
+# -----------------------------------------------------------------------------
+# HEAD (after GlobalAvgPool)
+# -----------------------------------------------------------------------------
+head:
+  dropout: 0.3                  # Dropout only in FC head — NOT in conv layers
+  # num_classes is NOT set here — auto-read from data_config.yaml at runtime
+  # This keeps the model truly dataset-agnostic
+
+# -----------------------------------------------------------------------------
+# WEIGHT INITIALIZATION
+# -----------------------------------------------------------------------------
+init:
+  conv: kaiming_normal          # He init — best for ReLU networks
+  bn_weight: 1.0                # BN gamma = 1 (standard)
+  bn_bias: 0.0                  # BN beta  = 0 (standard)
+  # Zero-init last BN in each residual block — improves training stability
+  zero_init_residual: true
+
+# -----------------------------------------------------------------------------
+# GRAD-CAM HOOK
+# -----------------------------------------------------------------------------
+gradcam:
+  target_layer: layer4          # Hook registered on layer4 output
+  # load_checkpoint_with_hooks() in utils/checkpoint.py re-registers
+  # this hook every time a checkpoint is loaded (v3 fix for blank heatmaps)
+
+# -----------------------------------------------------------------------------
+# ONNX EXPORT
+# -----------------------------------------------------------------------------
+onnx:
+  opset_version: 17
+  dynamic_axes: true            # Dynamic batch size — required for production
+  input_name: input
+  output_name: output
+  export_path: model.onnx       # Tracked via Git LFS
+
+# -----------------------------------------------------------------------------
+# ABLATION VARIANTS (reference — used in notebooks/ablation.ipynb)
+# -----------------------------------------------------------------------------
+# To run ablation, change `depth` and `blocks.se_block.enabled` here:
+#
+#   Baseline (no SE, ResNet-18):
+#     depth: 18
+#     se_block.enabled: false
+#
+#   + SE blocks (ResNet-18):
+#     depth: 18
+#     se_block.enabled: true
+#
+#   + Deeper (ResNet-34 + SE):
+#     depth: 34
+#     se_block.enabled: true   ← current default
+#
+#   Production (ResNet-50 + SE):
+#     depth: 50
+#     se_block.enabled: true
+# =============================================================================

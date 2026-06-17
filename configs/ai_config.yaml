@@ -1,0 +1,20 @@
+# =============================================================================
+# configs/ai_config.yaml — Gemini + LangChain Config
+# =============================================================================
+
+gemini:
+  model: gemini-1.5-flash       # Fast + cheap — good for demo
+  temperature: 0.4              # Low = factual, consistent advice
+  max_output_tokens: 512
+  timeout_seconds: 10.0         # asyncio.wait_for timeout
+  retry:
+    max_attempts: 3
+    backoff_seconds: [1, 2, 4]  # Exponential: 1s → 2s → 4s
+
+langchain_agent:
+  model: gemini-1.5-flash
+  temperature: 0.4
+  timeout_seconds: 30.0         # Agents need more time than single calls
+  max_iterations: 5             # Safety cap on tool calls
+
+daily_calorie_goal: 2000.0      # Default — overridden by user preference

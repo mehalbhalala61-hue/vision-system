@@ -1,0 +1,17 @@
+# =============================================================================
+# requirements-dev.txt — Kaggle GPU Training
+# =============================================================================
+# GPU torch — for Kaggle T4/P100 training
+# Install on Kaggle: pip install -r requirements-dev.txt
+
+# ── ML — GPU versions (Kaggle) ─────────────────────────────────────────
+torch==2.3.0
+torchvision==0.18.0
+
+# ── Training extras ────────────────────────────────────────────────────
+tensorboard==2.17.0
+thop==0.1.1.post2209072238      # FLOPs counter
+tqdm==4.66.4
+
+# ── Everything else same as requirements.txt ───────────────────────────
+-r requirements.txt

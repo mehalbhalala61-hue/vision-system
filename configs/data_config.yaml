@@ -1,0 +1,151 @@
+# =============================================================================
+# MASTER DATA CONFIG — Vision System Capstone
+# Dataset-agnostic: change `dataset` block → entire pipeline updates
+# Zero code changes needed to switch datasets
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# DATASET — Change this block to switch datasets
+# -----------------------------------------------------------------------------
+dataset:
+  name: indian_food_80               # Identifier used in logs, /model_info endpoint
+  num_classes: 80
+  class_names_file: data/classes.txt  # One class name per line
+  kaggle_id: iamsouravbanerjee/indian-food-images-dataset  # For download script
+
+  # Raw data paths — folder-structured (class_name/image.jpg)
+  train_dir: data/raw/Indian Food Images
+  val_dir:   data/raw/Indian Food Images
+  test_dir:  data/raw/Indian Food Images
+
+  # Stratified split ratios (must sum to 1.0)
+  splits:
+    train: 0.70
+    val:   0.15
+    test:  0.15
+    stratified: true
+    seed: 42
+    save_path: data/splits/  # .npy index files saved here
+
+# -----------------------------------------------------------------------------
+# IMAGE PREPROCESSING
+# -----------------------------------------------------------------------------
+image:
+  size: 224                           # Input size (H x W) — 224 for ResNet
+  channels: 3
+
+  # ImageNet statistics — use for pretrained-compatible pipelines
+  mean: [0.485, 0.456, 0.406]
+  std:  [0.229, 0.224, 0.225]
+
+  # Disk caching for speed (cache preprocessed tensors)
+  cache:
+    enabled: true
+    cache_dir: data/cache/
+
+# -----------------------------------------------------------------------------
+# DATALOADER
+# -----------------------------------------------------------------------------
+dataloader:
+  batch_size: 64
+  num_workers: 4
+  pin_memory: true
+  drop_last: true                     # Avoid issues with BatchNorm on small last batches
+
+# -----------------------------------------------------------------------------
+# BASE AUGMENTATION (Day 1 — light)
+# Advanced augmentation (Mixup, CutMix, TTA) lives in augmentation.py
+# -----------------------------------------------------------------------------
+augmentation:
+  train:
+    random_crop:
+      enabled: true
+      padding: 4
+    horizontal_flip:
+      enabled: true
+      p: 0.5
+    color_jitter:
+      enabled: true
+      brightness: 0.2
+      contrast: 0.2
+      saturation: 0.2
+      hue: 0.0
+    normalize: true
+
+  val_test:
+    center_crop:
+      enabled: false                  # Resize directly at eval time
+    normalize: true
+
+  # Advanced batch-level augmentation (Day 4)
+  # Applied in train_one_epoch() via AugmentationManager
+  advanced:
+    mixup_alpha:  0.4    # Beta distribution concentration for Mixup
+    cutmix_alpha: 1.0    # Beta distribution concentration for CutMix
+    p_mixup:      0.3    # Probability of applying Mixup per batch
+    p_cutmix:     0.3    # Probability of applying CutMix per batch
+    # Remaining 0.4 = no augmentation (clean batch)
+    # TrivialAugment is image-level — used in get_train_transforms_with_trivial()
+
+# -----------------------------------------------------------------------------
+# NUTRITION — disable for non-food datasets
+# -----------------------------------------------------------------------------
+nutrition:
+  enabled: true                       # Set false for Stanford Dogs, CIFAR, etc.
+  csv_path: data/nutrition.csv
+  source: usda                        # Options: usda | manual
+  usda:
+    api_key_env: USDA_API_KEY         # Key from environment — never hardcode
+    base_url: https://api.nal.usda.gov/fdc/v1
+    rate_limit_rph: 3600              # Requests per hour (free key)
+    demo_rate_limit_rph: 30           # DEMO_KEY fallback
+  columns:
+    - food_name
+    - calories_per_100g
+    - protein_g
+    - carbs_g
+    - fat_g
+    - fiber_g
+    - serving_size_g
+    - meal_type
+
+# -----------------------------------------------------------------------------
+# PATHS — centralised so nothing is hardcoded elsewhere
+# -----------------------------------------------------------------------------
+paths:
+  data_root:       data/
+  raw:             data/raw/
+  processed:       data/processed/
+  splits:          data/splits/
+  cache:           data/cache/
+  logs:            logs/
+  checkpoints:     logs/checkpoints/
+  loss_curves:     logs/loss_curves/
+  gradcam_outputs: logs/gradcam_outputs/
+  lr_finder_plot:  logs/lr_finder_plot.png
+  nutrition_csv:   data/nutrition.csv
+  classes_txt:     data/classes.txt
+
+# -----------------------------------------------------------------------------
+# HOW TO SWITCH DATASETS
+# Change ONLY the `dataset` block above:
+#
+#   Stanford Dogs (120 classes):
+#     name: stanford_dogs
+#     num_classes: 120
+#     class_names_file: data/classes.txt
+#     nutrition.enabled: false
+#
+#   CIFAR-100:
+#     name: cifar_100
+#     num_classes: 100
+#     nutrition.enabled: false
+#
+#   Custom dataset:
+#     name: my_custom_dataset
+#     num_classes: <N>
+#     train_dir: data/raw/train
+#     nutrition.enabled: false
+#
+# Everything else — model, training, API — auto-reads from here.
+# =============================================================================
