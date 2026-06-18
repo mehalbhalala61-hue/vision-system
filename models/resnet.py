@@ -320,9 +320,9 @@ def build_model(
         model = build_model()
         model = model.to(device)
     """
-    with open(model_cfg_path) as f:
+    with open(model_cfg_path, encoding='utf-8') as f:
         mcfg = yaml.safe_load(f)
-    with open(data_cfg_path) as f:
+    with open(data_cfg_path, encoding='utf-8') as f:
         dcfg = yaml.safe_load(f)
 
     num_classes = dcfg["dataset"]["num_classes"]
