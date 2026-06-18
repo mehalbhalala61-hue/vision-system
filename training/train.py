@@ -209,7 +209,7 @@ def train_one_epoch(
         optimizer.zero_grad()
 
         # ── AMP forward pass ──
-        with autocast(enabled=amp_enabled):
+        with torch.amp.autocast('cuda', enabled=amp_enabled):
             logits = model(images)
             loss   = criterion(logits, soft_labels)   # soft labels here
 
@@ -445,7 +445,7 @@ def train(args: argparse.Namespace) -> None:
     # ── Loss / Optimizer ──
     criterion = build_criterion(train_cfg)
     optimizer = build_optimizer(model, train_cfg)
-    scaler    = GradScaler(enabled=train_cfg["amp"]["enabled"])
+    scaler = torch.amp.GradScaler('cuda', enabled=train_cfg["amp"]["enabled"])
 
     # ── Overfit test (quick capacity check) ──
     if args.overfit_test:
