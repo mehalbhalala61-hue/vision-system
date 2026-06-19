@@ -88,7 +88,7 @@ def call_gemini_batch(
     """
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(
-        model_name="gemini-1.5-flash",
+        model_name=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
         generation_config=genai.GenerationConfig(
             temperature=0.1,          # Low temp = consistent, factual output
             response_mime_type="application/json",  # Force JSON response
