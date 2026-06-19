@@ -325,9 +325,9 @@ def run_export(args: argparse.Namespace) -> dict:
         5. Print Git LFS commands
     """
     # ── Load configs ────────────────────────────────────────────────────
-    with open("configs/model_config.yaml") as f:
+    with open("configs/model_config.yaml", encoding="utf-8") as f:
         model_cfg = yaml.safe_load(f)
-    with open("configs/data_config.yaml") as f:
+    with open("configs/data_config.yaml", encoding="utf-8") as f:
         data_cfg = yaml.safe_load(f)
 
     export_path = args.output or model_cfg["onnx"]["export_path"]

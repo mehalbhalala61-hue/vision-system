@@ -29,6 +29,7 @@
 # =============================================================================
 
 import os
+import json
 import time
 import argparse
 import logging
@@ -55,6 +56,13 @@ OUTPUT_CSV    = Path("data/nutrition.csv")
 CLASSES_FILE  = Path("data/classes.txt")
 USDA_MAP_FILE = Path("data/usda_map.json")
 RETRY_MAP_FILE = Path("data/usda_retry_map.json")  # cache for retry terms too
+
+# INDB (Indian Nutrient Databank) — primary source for Indian composite
+# dishes, used BEFORE USDA. Falls back to USDA when a class has no
+# verified INDB mapping (e.g. very regional sweets not in INDB's 1,014
+# recipes either).
+INDB_MAP_FILE   = Path("data/indb_map.json")        # class_name -> INDB food_name
+INDB_DATA_FILE  = Path("data/indb_nutrition.csv")   # food_name -> nutrients
 
 GEMINI_MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
@@ -85,8 +93,62 @@ FALLBACK_NUTRITION: dict[str, dict] = {
 
 
 # =============================================================================
+# INDB (Indian Nutrient Databank) — primary nutrition source
+# =============================================================================
+# Source: Vijayakumar et al. 2024, "Development of an Indian Food
+# Composition Database" — open-access, 1,014 commonly consumed Indian
+# recipes derived from ICMR-NIN IFCT 2017/2004.
+# https://github.com/lindsayjaacks/Indian-Nutrient-Databank-INDB-
+#
+# data/indb_map.json maps our class_name -> the exact INDB recipe name.
+# This mapping is hand-verified (not fuzzy-matched), specifically to avoid
+# the kind of false match we saw with USDA (e.g. "Beef curry" for
+# "aloo gobi") — INDB coverage is intentionally partial (~32/80 classes)
+# rather than complete-but-wrong.
+# =============================================================================
+
+_indb_nutrition_cache: dict[str, dict] | None = None
+
+
+def _load_indb_nutrition() -> dict[str, dict]:
+    """Load data/indb_nutrition.csv into a {food_name: nutrients} dict, once."""
+    global _indb_nutrition_cache
+    if _indb_nutrition_cache is None:
+        _indb_nutrition_cache = {}
+        if INDB_DATA_FILE.exists():
+            indb_df = pd.read_csv(INDB_DATA_FILE)
+            for _, row in indb_df.iterrows():
+                _indb_nutrition_cache[row["food_name"]] = {
+                    "calories_per_100g": row["calories_per_100g"],
+                    "protein_g":         row["protein_g"],
+                    "carbs_g":           row["carbs_g"],
+                    "fat_g":             row["fat_g"],
+                    "fiber_g":           row["fiber_g"],
+                    "usda_description":  row["food_name"],  # reuse field for logging
+                }
+    return _indb_nutrition_cache
+
+
+def get_indb_match(class_name: str) -> dict | None:
+    """
+    Look up a class in the verified INDB mapping. Returns a nutrients dict
+    (same shape as search_usda's return value) or None if this class has
+    no verified INDB entry.
+    """
+    if not INDB_MAP_FILE.exists():
+        return None
+    indb_map: dict[str, str] = json.loads(INDB_MAP_FILE.read_text(encoding="utf-8"))
+    indb_name = indb_map.get(class_name)
+    if not indb_name:
+        return None
+    nutrition = _load_indb_nutrition()
+    return nutrition.get(indb_name)
+
+
+# =============================================================================
 # USDA API
 # =============================================================================
+
 
 FOOD_STOPWORDS = {
     "curry", "masala", "dish", "sweet", "fried", "spice", "spiced",
@@ -332,36 +394,48 @@ def fetch_all(api_key: str, dry_run: bool = False, use_retry: bool = True) -> pd
             logger.warning("No existing CSV found — run without --dry-run")
         return pd.DataFrame()
 
-    # ── Fetch from USDA (+ bounded Gemini retry on miss) ──
+    # ── Fetch: INDB (primary) → USDA → Gemini retry → fallback ──
     rows = []
     retry_used = 0
     for i, class_name in enumerate(classes):
-        # Use map entry if available, else fall back to plain name
-        primary_query = usda_map.get(class_name, class_name.replace("_", " "))
-        logger.info(f"[{i+1:3d}/{len(classes)}] {class_name:40s} → '{primary_query}'")
+        logger.info(f"[{i+1:3d}/{len(classes)}] {class_name:40s}")
 
-        nutrients = search_usda(primary_query, api_key)
-        source = "usda"
-
-        if not nutrients and use_retry:
-            # Reuse a cached retry term if we already asked Gemini for
-            # this class in a previous run — keeps Gemini calls bounded
-            # even across re-runs of this script.
-            alt_query = retry_cache.get(class_name)
-            if not alt_query:
-                alt_query = get_alternate_term(class_name, primary_query)
-                if alt_query:
-                    retry_cache[class_name] = alt_query
-
-            if alt_query:
-                logger.info(f"  ↻ retry with '{alt_query}'")
-                nutrients = search_usda(alt_query, api_key)
-                if nutrients:
-                    source = "usda_retry"
+        # 1) INDB — hand-verified Indian recipe data, checked first
+        nutrients = get_indb_match(class_name)
+        source = "indb"
 
         if nutrients:
-            logger.info(f"  ✓ {nutrients.get('usda_description', '')[:55]}")
+            logger.info(f"  ✓ INDB: {nutrients.get('usda_description', '')[:55]}")
+            primary_query = None  # not used, INDB matched directly
         else:
+            # 2) USDA — using the cached term from usda_map.json
+            primary_query = usda_map.get(class_name, class_name.replace("_", " "))
+            logger.info(f"  → USDA query: '{primary_query}'")
+            nutrients = search_usda(primary_query, api_key)
+            source = "usda"
+
+            # 3) Gemini-assisted retry on USDA miss
+            if not nutrients and use_retry:
+                # Reuse a cached retry term if we already asked Gemini for
+                # this class in a previous run — keeps Gemini calls bounded
+                # even across re-runs of this script.
+                alt_query = retry_cache.get(class_name)
+                if not alt_query:
+                    alt_query = get_alternate_term(class_name, primary_query)
+                    if alt_query:
+                        retry_cache[class_name] = alt_query
+
+                if alt_query:
+                    logger.info(f"  ↻ retry with '{alt_query}'")
+                    nutrients = search_usda(alt_query, api_key)
+                    if nutrients:
+                        source = "usda_retry"
+
+            if nutrients:
+                logger.info(f"  ✓ {nutrients.get('usda_description', '')[:55]}")
+
+        # 4) Heuristic fallback — only if nothing above matched
+        if not nutrients:
             logger.warning(f"  ✗ No match — fallback")
             nutrients = get_fallback(class_name)
             source    = "fallback"
@@ -380,8 +454,9 @@ def fetch_all(api_key: str, dry_run: bool = False, use_retry: bool = True) -> pd
             "source":            source,
         })
 
-        # Rate limit: DEMO_KEY = 30/hr, free key = 3600/hr
-        time.sleep(1.5 if api_key == "DEMO_KEY" else 0.3)
+        # Rate limit only applies when we actually called the USDA API
+        if source != "indb":
+            time.sleep(1.5 if api_key == "DEMO_KEY" else 0.3)
 
     # Persist any new retry terms so future re-runs don't re-call Gemini
     if retry_cache:
@@ -403,11 +478,13 @@ def fetch_all(api_key: str, dry_run: bool = False, use_retry: bool = True) -> pd
     OUTPUT_CSV.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(OUTPUT_CSV, index=False)
 
+    indb_count       = (df["source"] == "indb").sum()
     usda_count       = (df["source"] == "usda").sum()
     usda_retry_count = (df["source"] == "usda_retry").sum()
     fallback_count    = (df["source"] == "fallback").sum()
     logger.info(f"\nSaved {len(df)} rows → {OUTPUT_CSV}")
     logger.info(
+        f"INDB: {indb_count} | "
         f"USDA (direct): {usda_count} | "
         f"USDA (after Gemini retry): {usda_retry_count} | "
         f"Fallback: {fallback_count}"
