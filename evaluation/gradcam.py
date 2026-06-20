@@ -123,7 +123,7 @@ class GradCAM:
         # Resize to input image size
         h, w = image_tensor.shape[2], image_tensor.shape[3]
         cam   = F.interpolate(cam, size=(h, w), mode="bilinear", align_corners=False)
-        cam   = cam.squeeze().cpu().numpy()
+        cam   = cam.detach().squeeze().cpu().numpy()
 
         # Normalise to [0, 1]
         if cam.max() > cam.min():
@@ -174,7 +174,7 @@ def overlay_heatmap(
         overlay : (H, W, 3) uint8 blended image
     """
     import matplotlib.cm as cm
-    cmap      = cm.get_cmap(colormap)
+    cmap = plt.get_cmap(colormap)
     heat_rgb  = (cmap(heatmap)[:, :, :3] * 255).astype(np.uint8)
     overlay   = ((1 - alpha) * image_np + alpha * heat_rgb).astype(np.uint8)
     return overlay
